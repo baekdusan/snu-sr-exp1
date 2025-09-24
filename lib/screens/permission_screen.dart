@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/sheets_service.dart';
 
 class PermissionScreen extends StatefulWidget {
   const PermissionScreen({super.key});
@@ -9,11 +10,94 @@ class PermissionScreen extends StatefulWidget {
 
 class _PermissionScreenState extends State<PermissionScreen> {
   final TextEditingController _subjectController = TextEditingController();
+  bool _isLoading = false;
 
   @override
   void dispose() {
     _subjectController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleStart() async {
+    final subjectNumber = int.tryParse(_subjectController.text);
+
+    // 입력값 유효성 검사
+    if (subjectNumber == null || subjectNumber < 1 || subjectNumber > 64) {
+      _showErrorDialog('입력 오류', '1부터 64까지의 숫자를 입력해주세요.');
+      return;
+    }
+
+    // 로딩 상태 시작
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 중복 확인
+      final isExists = await SheetsService.isSubjectDataExists(subjectNumber);
+
+      if (isExists) {
+        _showErrorDialog('중복된 피험자 번호',
+            '피험자 번호 $subjectNumber는 이미 실험이 완료되었습니다.\n다른 번호를 입력해주세요.');
+      } else {
+        // 중복이 아니면 실험 화면으로 이동
+        Navigator.pushNamed(
+          context,
+          '/chatbot',
+          arguments: subjectNumber,
+        );
+      }
+    } catch (e) {
+      _showErrorDialog('네트워크 오류', '데이터 확인 중 오류가 발생했습니다.\n잠시 후 다시 시도해주세요.');
+    } finally {
+      // 로딩 상태 종료
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.black87,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.black87,
+            fontSize: 16,
+          ),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.black87,
+              backgroundColor: Colors.grey.shade100,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: const Text(
+              '확인',
+              style: TextStyle(fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -41,7 +125,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
                         controller: _subjectController,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          hintText: '1 ~ 64 사이의 숫자를 입력해주세요. (ex: 1)',
+                          hintText: '1 ~ 64 사이의 숫자를 입력해주세요.',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -69,32 +153,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: () {
-                    final subjectNumber = int.tryParse(_subjectController.text);
-                    if (subjectNumber != null &&
-                        subjectNumber >= 1 &&
-                        subjectNumber <= 64) {
-                      Navigator.pushNamed(
-                        context,
-                        '/chatbot',
-                        arguments: subjectNumber,
-                      );
-                    } else {
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('입력 오류'),
-                          content: const Text('1부터 64까지의 숫자를 입력해주세요.'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('확인'),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                  },
+                  onPressed: _isLoading ? null : _handleStart,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
@@ -102,7 +161,17 @@ class _PermissionScreenState extends State<PermissionScreen> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: const Text('시작', style: TextStyle(fontSize: 16)),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text('시작', style: TextStyle(fontSize: 16)),
                 ),
               ),
             ),

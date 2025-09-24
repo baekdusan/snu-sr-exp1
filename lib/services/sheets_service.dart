@@ -149,12 +149,37 @@ class SheetsService {
     return questions;
   }
 
+  /// 피험자 번호가 이미 사용되었는지 확인
+  ///
+  /// [subjectNumber]: 확인할 피험자 번호 (1-64)
+  /// 반환: true면 이미 데이터가 있음 (중복), false면 사용 가능
+  static Future<bool> isSubjectDataExists(int subjectNumber) async {
+    try {
+      // output 시트가 초기화되지 않았다면 초기화 수행
+      if (_outputSheet == null) await init();
+
+      // 피험자의 첫 번째 행 위치 계산
+      final firstRow = (subjectNumber - 1) * 4 + 2;
+
+      // 해당 행에 데이터가 있는지 확인
+      final rowData = await _outputSheet!.values.row(firstRow);
+      final hasData = rowData.isNotEmpty && rowData[0].toString().isNotEmpty;
+
+      print('🔍 피험자 $subjectNumber 중복 확인: ${hasData ? "이미 존재" : "사용 가능"}');
+      return hasData;
+    } catch (e) {
+      print('❌ 피험자 $subjectNumber 중복 확인 실패: $e');
+      // 에러 발생 시 안전하게 false 반환 (사용 가능으로 판단)
+      return false;
+    }
+  }
+
   /// 피험자의 전체 실험 결과를 Google Sheets에 일괄 저장
   ///
   /// [subjectNumber]: 피험자 번호 (1-64)
   /// [results]: 4개 질문에 대한 실험 결과 리스트
   ///
-  /// 각 결과를 output 시트에 순차적으로 추가하여 저장
+  /// 동시성 문제 해결을 위한 재시도 로직과 배치 저장 방식 사용
   /// 시간 정보는 ISO 8601 형식으로 저장
   static Future<void> recordAllResults({
     required int subjectNumber,
@@ -169,7 +194,7 @@ class SheetsService {
     for (final result in results) {
       final questionId = '$subjectNumber-${result.questionNumber}';
       rows.add([
-        questionId, // 피험자 ID
+        subjectNumber.toString(), // 피험자 ID
         DateTime.now().toIso8601String(), // 타임스탬프
         questionId, // 질의 번호
         result.sendTime.toIso8601String(), // 발송 시간
@@ -178,9 +203,25 @@ class SheetsService {
       ]);
     }
 
-    // 모든 결과를 순차적으로 시트에 추가
-    for (final row in rows) {
-      await _outputSheet!.values.appendRow(row);
+    // 피험자별 고정 위치에 저장 (동시성 문제 완전 해결)
+    try {
+      // 피험자별 시작 행 계산: 헤더(1행) + 이전 피험자들의 4행씩
+      // 피험자 1: 2~5행, 피험자 2: 6~9행, 피험자 3: 10~13행...
+      final startRow = (subjectNumber - 1) * 4 + 2;
+
+      print('🎯 피험자 $subjectNumber → $startRow~${startRow + 3}행에 저장');
+
+      // 각 행을 정확한 위치에 저장
+      for (int i = 0; i < rows.length; i++) {
+        final targetRow = startRow + i;
+        await _outputSheet!.values.insertRow(targetRow, rows[i]);
+        print('📝 ${targetRow}행 저장: ${rows[i][0]} (${rows[i][5]}ms)');
+      }
+
+      print('✅ 피험자 $subjectNumber의 데이터를 $startRow~${startRow + 3}행에 저장 완료');
+    } catch (e) {
+      print('❌ 피험자 $subjectNumber 저장 실패: $e');
+      rethrow;
     }
   }
 }

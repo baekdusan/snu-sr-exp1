@@ -207,15 +207,42 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       context: context,
       barrierDismissible: false, // 뒤로가기로 닫을 수 없도록
       builder: (context) => AlertDialog(
-        title: const Text('데이터 저장 실패'),
-        content: const Text('실험 데이터 저장에 실패했습니다.\n네트워크 연결을 확인하고 다시 시도해주세요.'),
+        backgroundColor: Colors.white,
+        title: const Text(
+          '데이터 저장 실패',
+          style: TextStyle(
+            color: Colors.black87,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        content: const Text(
+          '실험 데이터 저장에 실패했습니다.\n네트워크 연결을 확인하고 다시 시도해주세요.',
+          style: TextStyle(
+            color: Colors.black87,
+            fontSize: 16,
+          ),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _finishExperiment(); // 재시도
             },
-            child: const Text('다시 시도'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.black87,
+              backgroundColor: Colors.grey.shade100,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: const Text(
+              '다시 시도',
+              style: TextStyle(fontSize: 16),
+            ),
           ),
         ],
       ),
@@ -504,7 +531,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                             ),
                           ),
                           child: isFinishing && currentQuestionIndex >= 3
-                              ? Row(
+                              ? const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     SizedBox(
@@ -515,8 +542,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    const Text('저장 중...', style: TextStyle(fontSize: 16)),
+                                    SizedBox(width: 8),
+                                    Text('저장 중...', style: TextStyle(fontSize: 16)),
                                   ],
                                 )
                               : Text(
