@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
 import '../widgets/app_header.dart';
+import '../services/sheets_service.dart';
+import '../models/question_result.dart';
 
 enum ChatbotState {
   initial, // 처음 시작 상태 (검은 오버레이 + 시작 버튼)
@@ -34,17 +35,56 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   ChatbotState currentState = ChatbotState.initial;
   List<ChatMessage> messages = [];
   final TextEditingController _textController = TextEditingController();
-  final Random _random = Random();
   bool isProcessingResponse = false;
 
-  final List<String> _botResponses = [
-    '네, 그렇게 생각해볼 수 있겠네요. 더 말씀해 주세요.',
-    '흥미로운 관점이군요. 어떤 기분이 드시나요?',
-    '그런 상황이라면 정말 어려우셨을 것 같아요.',
-    '잘 들었습니다. 그때 어떤 선택을 하셨나요?',
-    '말씀하신 것처럼 느끼시는 게 자연스러워요.',
-    '더 자세히 설명해 주실 수 있을까요?',
-  ];
+  // 실험 관련 변수들
+  int? subjectNumber;
+  List<String> questions = [];
+  int currentQuestionIndex = 0;
+  List<QuestionResult> results = [];
+  DateTime? sendTime;
+  bool isFinishing = false; // 실험 종료 중인지 표시
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSubjectData();
+    });
+  }
+
+  void _loadSubjectData() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args != null && args is int) {
+      subjectNumber = args;
+      _loadQuestions();
+    }
+  }
+
+  Future<void> _loadQuestions() async {
+    if (subjectNumber != null) {
+      try {
+        questions = await SheetsService.getQuestionsForSubject(subjectNumber!);
+        // 질문 로드만 하고, 입력창에는 설정하지 않음
+      } catch (e) {
+        // 에러 발생 시 기본 질문들 사용 (테스트용)
+        questions = [
+          "첫 번째 질문입니다.",
+          "두 번째 질문입니다.",
+          "세 번째 질문입니다.",
+          "네 번째 질문입니다.",
+        ];
+      }
+    }
+  }
+
+  void _setCurrentQuestion() {
+    if (currentQuestionIndex < questions.length) {
+      setState(() {
+        _textController.text = questions[currentQuestionIndex];
+      });
+    }
+  }
 
   void _changeState(ChatbotState newState) {
     setState(() {
@@ -55,6 +95,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   void _sendMessage() {
     if (_textController.text.isNotEmpty && !isProcessingResponse) {
       final userMessage = _textController.text;
+      sendTime = DateTime.now(); // 발송 시간 기록
 
       // 키보드 숨기기
       FocusScope.of(context).unfocus();
@@ -87,12 +128,98 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   void _stopProcessing() {
-    if (isProcessingResponse) {
+    if (isProcessingResponse && sendTime != null) {
+      final stopTime = DateTime.now();
+      final latencyMs = stopTime.difference(sendTime!).inMilliseconds;
+
+      // 현재 질문의 결과 저장
+      results.add(QuestionResult(
+        questionNumber: currentQuestionIndex + 1,
+        questionText: questions[currentQuestionIndex],
+        sendTime: sendTime!,
+        stopTime: stopTime,
+        latencyMs: latencyMs,
+      ));
+
       setState(() {
         isProcessingResponse = false;
         currentState = ChatbotState.finished;
       });
     }
+  }
+
+  void _nextQuestion() {
+    currentQuestionIndex++;
+    messages.clear();
+
+    if (currentQuestionIndex < questions.length) {
+      _setCurrentQuestion(); // 질문 먼저 설정
+      _changeState(ChatbotState.loading); // 그다음 상태 변경
+    } else {
+      // 모든 질문 완료 - 실험 종료
+      _finishExperiment();
+    }
+  }
+
+  void _retryCurrentQuestion() {
+    // 현재 질문의 결과 삭제
+    if (results.isNotEmpty) {
+      results.removeLast();
+    }
+
+    // 메시지 초기화하고 현재 질문 다시 설정
+    messages.clear();
+    _setCurrentQuestion(); // 질문 먼저 설정
+    _changeState(ChatbotState.loading); // 그다음 상태 변경
+  }
+
+  Future<void> _finishExperiment() async {
+    setState(() {
+      isFinishing = true; // 로딩 상태 시작
+    });
+
+    if (subjectNumber != null && results.isNotEmpty) {
+      try {
+        await SheetsService.recordAllResults(
+          subjectNumber: subjectNumber!,
+          results: results,
+        );
+        // 저장 성공 시 첫 화면으로 돌아가기
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/');
+        }
+      } catch (e) {
+        setState(() {
+          isFinishing = false; // 로딩 상태 종료
+        });
+        // 저장 실패 시 재시도 팝업 표시
+        _showSaveErrorDialog();
+      }
+    } else {
+      setState(() {
+        isFinishing = false; // 로딩 상태 종료
+      });
+    }
+  }
+
+  void _showSaveErrorDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // 뒤로가기로 닫을 수 없도록
+      builder: (context) => AlertDialog(
+        title: const Text('데이터 저장 실패'),
+        content: const Text('실험 데이터 저장에 실패했습니다.\n네트워크 연결을 확인하고 다시 시도해주세요.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _finishExperiment(); // 재시도
+            },
+            child: const Text('다시 시도'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -197,6 +324,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         Expanded(
                           child: TextField(
                             controller: _textController,
+                            maxLines: null, // 자동 줄바꿈
+                            minLines: 1,
+                            keyboardType: TextInputType.multiline,
                             decoration: InputDecoration(
                               hintText: '메시지를 입력하세요...',
                               border: OutlineInputBorder(
@@ -292,7 +422,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: () => _changeState(ChatbotState.loading),
+                    onPressed: () {
+                      _setCurrentQuestion(); // 시작할 때 질문 설정
+                      _changeState(ChatbotState.loading);
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
@@ -344,7 +477,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       child: SizedBox(
                         height: 48,
                         child: ElevatedButton(
-                          onPressed: () => _changeState(ChatbotState.loading),
+                          onPressed: _retryCurrentQuestion,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: Colors.black,
@@ -362,7 +495,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                       child: SizedBox(
                         height: 48,
                         child: ElevatedButton(
-                          onPressed: () => _changeState(ChatbotState.loading),
+                          onPressed: isFinishing ? null : _nextQuestion,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
@@ -370,8 +503,26 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child:
-                              const Text('다음 질의', style: TextStyle(fontSize: 16)),
+                          child: isFinishing && currentQuestionIndex >= 3
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text('저장 중...', style: TextStyle(fontSize: 16)),
+                                  ],
+                                )
+                              : Text(
+                                  currentQuestionIndex >= 3 ? '실험 종료' : '다음 질의',
+                                  style: const TextStyle(fontSize: 16),
+                                ),
                         ),
                       ),
                     ),

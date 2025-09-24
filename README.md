@@ -1,16 +1,180 @@
-# samsung_research_experiment
+# Samsung Research Experiment Flutter App
 
-A new Flutter project.
+**사용자 상호작용 연구를 위한 챗봇 인터페이스 실험 앱**
 
-## Getting Started
+## 📱 프로젝트 개요
 
-This project is a starting point for a Flutter application.
+이 앱은 Samsung Research에서 사용자의 챗봇 인터페이스와의 상호작용 패턴, 특히 응답 대기 시간에 대한 인내심을 측정하기 위한 실험 도구입니다.
 
-A few resources to get you started if this is your first Flutter project:
+### 주요 기능
+- 📊 **피험자별 맞춤 질문**: Google Sheets 연동으로 64명의 피험자별 4개 질문 자동 배정
+- ⏱️ **정밀 시간 측정**: 질문 전송부터 응답 중단까지의 대기 시간 측정 (밀리초 단위)
+- 🔄 **순차적 실험 진행**: 4개 질문을 차례대로 진행하는 체계적 실험 설계
+- 📈 **실시간 데이터 수집**: Google Sheets API를 통한 실험 결과 자동 저장
+- 🚫 **중복 실행 방지**: 안정적인 상태 관리로 데이터 무결성 보장
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## 🏗️ 시스템 아키텍처
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 화면 구성
+```
+PermissionScreen (피험자 번호 입력)
+       ↓
+ChatbotScreen (실험 진행)
+  ├── initial (시작 대기)
+  ├── loading (점 애니메이션)
+  ├── chatting (대화 진행)
+  └── finished (완료/다음)
+```
+
+### 실험 플로우
+```
+피험자 번호 입력 (1-64) → 질문 로드 →
+질문1 → 대기시간 측정 →
+질문2 → 대기시간 측정 →
+질문3 → 대기시간 측정 →
+질문4 → 대기시간 측정 →
+결과 일괄 저장 → 실험 완료
+```
+
+## 🛠️ 기술 스택
+
+- **Framework**: Flutter 3.4.4+
+- **Language**: Dart
+- **Backend**: Google Sheets API
+- **Authentication**: Google Service Account
+- **State Management**: Flutter StatefulWidget
+- **Network**: HTTP/REST API calls
+
+### 주요 의존성
+```yaml
+dependencies:
+  flutter: sdk: flutter
+  cupertino_icons: ^1.0.6
+  http: ^1.1.0
+  gsheets: ^0.5.0
+```
+
+## 📋 Google Sheets 연동
+
+### 데이터 구조
+
+#### Query Sheet (질문 데이터)
+| 피험자ID | 질문내용 |
+|---------|---------|
+| 1-1 | 첫 번째 피험자의 첫 번째 질문 |
+| 1-2 | 첫 번째 피험자의 두 번째 질문 |
+| ... | ... |
+| 64-4 | 64번째 피험자의 네 번째 질문 |
+
+#### Output Sheet (결과 데이터)
+| 피험자 ID | 타임스탬프 | 질의 번호 | 발송 시간 | 중지 시간 | Latency (ms) |
+|---------|-----------|---------|----------|----------|-------------|
+| 1-1 | 2024-01-01T10:00:00 | 1-1 | 10:00:01 | 10:00:15 | 14000 |
+
+## ⚙️ 설치 및 설정
+
+### 1. 프로젝트 클론
+```bash
+git clone [repository-url]
+cd samsung_research_experiment
+```
+
+### 2. 의존성 설치
+```bash
+flutter pub get
+```
+
+### 3. Google Sheets API 설정
+1. Google Cloud Console에서 프로젝트 생성
+2. Google Sheets API 활성화
+3. 서비스 계정 생성 및 JSON 키 다운로드
+4. `lib/services/sheets_service.dart`에 인증 정보 입력
+5. Google Sheets에 서비스 계정 이메일 편집자 권한 부여
+
+### 4. 앱 실행
+```bash
+flutter run
+```
+
+## 🔧 사용 방법
+
+### 실험 진행 단계
+1. **피험자 번호 입력**: 1-64 범위의 숫자 입력
+2. **시작 버튼 클릭**: 첫 번째 질문이 입력창에 자동 설정
+3. **질문 전송**: 화살표 버튼으로 질문 전송 (시간 측정 시작)
+4. **응답 대기**: "잠시만 기다려 주세요" 메시지 표시
+5. **중지 버튼 클릭**: 정지 아이콘 클릭으로 대기 중단 (시간 측정 종료)
+6. **다음 질의**: 4개 질문 반복 진행
+7. **실험 종료**: 마지막 질문 완료 시 자동으로 결과 저장
+
+### 버튼 기능
+- **다시 하기**: 현재 질문 재시도 (이전 결과 삭제)
+- **다음 질의**: 다음 질문으로 진행 (1-3번 질문)
+- **실험 종료**: 모든 결과를 Google Sheets에 저장 후 초기화면 이동 (4번 질문)
+
+## 🎯 실험 설계 특징
+
+### 측정 지표
+- **반응 시간**: 질문 전송 ~ 응답 중단 시간 (밀리초)
+- **사용자 행동**: 재시도 패턴, 질문별 대기시간 차이
+- **실험 완료율**: 4개 질문 모두 완료한 피험자 비율
+
+### 데이터 수집 방식
+- 각 질문별 개별 시간 측정
+- 메모리에 임시 저장 후 실험 종료 시 일괄 업로드
+- 네트워크 오류 시 재시도 메커니즘 제공
+
+## 🚀 성능 최적화
+
+### 데이터 로딩 최적화
+- **캐싱 시스템**: 앱 시작 시 전체 질문 데이터를 메모리에 로드
+- **즉시 응답**: 피험자 번호 입력 후 캐시에서 바로 질문 검색
+- **네트워크 최소화**: 초기 1회 로드 + 결과 저장 시에만 API 호출
+
+### UI/UX 개선사항
+- **자동 줄바꿈**: 긴 질문도 읽기 편하게 여러 줄 표시
+- **로딩 인디케이터**: 실험 종료 시 저장 상태 시각적 피드백
+- **에러 처리**: 네트워크 오류 시 재시도 옵션 제공
+
+## 🛡️ 보안 및 안정성
+
+### 데이터 보호
+- Google Service Account 기반 안전한 API 인증
+- 클라이언트-서버 간 HTTPS 암호화 통신
+- 피험자 개인정보 최소 수집 (번호만 사용)
+
+### 오류 처리
+- 네트워크 연결 오류 시 재시도 메커니즘
+- 잘못된 피험자 번호 입력 시 유효성 검사
+- 예외 상황 로깅 및 사용자 친화적 오류 메시지
+
+## 📊 실험 결과 분석
+
+수집된 데이터는 다음과 같은 분석에 활용 가능:
+- 질문 유형별 평균 대기 시간 비교
+- 피험자 그룹별 인내심 패턴 분석
+- 재시도 행동과 최종 대기 시간의 상관관계
+- 실험 순서(1-4차)에 따른 행동 변화
+
+## 🔄 확장 가능성
+
+### 향후 개선 방안
+- 다양한 응답 생성 피드백 방식 A/B 테스트
+- 실시간 분석 대시보드 연동
+- 음성 인터페이스 실험 확장
+- 다국어 지원 (현재 한국어만 지원)
+
+## 📞 지원
+
+실험 진행 중 문제 발생 시:
+1. 앱 재시작 시도
+2. 네트워크 연결 상태 확인
+3. 피험자 번호 재입력
+4. 기술 지원팀 연락
+
+---
+
+**개발**: Claude Code Assistant
+**연구 목적**: Samsung Research 사용자 상호작용 패턴 분석
+**버전**: 1.0.0
+**최종 업데이트**: 2024

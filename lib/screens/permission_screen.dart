@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
 
-class PermissionScreen extends StatelessWidget {
+class PermissionScreen extends StatefulWidget {
   const PermissionScreen({super.key});
+
+  @override
+  State<PermissionScreen> createState() => _PermissionScreenState();
+}
+
+class _PermissionScreenState extends State<PermissionScreen> {
+  final TextEditingController _subjectController = TextEditingController();
+
+  @override
+  void dispose() {
+    _subjectController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,8 +38,10 @@ class PermissionScreen extends StatelessWidget {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: TextField(
+                        controller: _subjectController,
+                        keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          hintText: 'R1234',
+                          hintText: '1 ~ 64 사이의 숫자를 입력해주세요. (ex: 1)',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -39,7 +54,8 @@ class PermissionScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                             borderSide: const BorderSide(color: Colors.blue),
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
                         ),
                       ),
                     ),
@@ -53,7 +69,32 @@ class PermissionScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.pushNamed(context, '/chatbot'),
+                  onPressed: () {
+                    final subjectNumber = int.tryParse(_subjectController.text);
+                    if (subjectNumber != null &&
+                        subjectNumber >= 1 &&
+                        subjectNumber <= 64) {
+                      Navigator.pushNamed(
+                        context,
+                        '/chatbot',
+                        arguments: subjectNumber,
+                      );
+                    } else {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('입력 오류'),
+                          content: const Text('1부터 64까지의 숫자를 입력해주세요.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('확인'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
