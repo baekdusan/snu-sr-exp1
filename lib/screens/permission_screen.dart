@@ -22,8 +22,8 @@ class _PermissionScreenState extends State<PermissionScreen> {
     final subjectNumber = int.tryParse(_subjectController.text);
 
     // 입력값 유효성 검사
-    if (subjectNumber == null || subjectNumber < 1 || subjectNumber > 64) {
-      _showErrorDialog('입력 오류', '1부터 64까지의 숫자를 입력해주세요.');
+    if (subjectNumber == null || subjectNumber < 1 || subjectNumber > 80) {
+      _showErrorDialog('입력 오류', '1부터 80까지의 숫자를 입력해주세요.');
       return;
     }
 
@@ -125,7 +125,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
                         controller: _subjectController,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          hintText: '1 ~ 64 사이의 숫자를 입력해주세요.',
+                          hintText: '피험자 번호 한번씩 더 확인!',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide(color: Colors.grey.shade300),
