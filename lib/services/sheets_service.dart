@@ -14,14 +14,16 @@ class SheetsService {
   // 워크시트 이름 상수
   static const _queryWorksheet = 'query'; // 질문 내용이 저장된 시트
   static const _randomizationWorksheet = 'randomization'; // 피험자별 질문 번호가 저장된 시트
-  static const _outputWorksheet = 'output'; // 실험 결과가 저장될 시트
+  static const _mainResultsWorksheet = 'main_results'; // 실제 질문 결과가 저장될 시트
+  static const _quizResultsWorksheet = 'quiz_results'; // 퀴즈 결과가 저장될 시트
 
   // Google Sheets API 인스턴스들
   static GSheets? _gsheets;
   static Spreadsheet? _spreadsheet;
   static Worksheet? _querySheet;
   static Worksheet? _randomizationSheet;
-  static Worksheet? _outputSheet;
+  static Worksheet? _mainResultsSheet;
+  static Worksheet? _quizResultsSheet;
 
   /// 질문 데이터 캐시
   /// Key: 질문 번호 (예: "18-4", "12-2")
@@ -48,19 +50,6 @@ class SheetsService {
       // Google Service Account 인증 정보
       // 실제 운영 환경에서는 환경변수나 보안 저장소 사용 권장
       const credentials = r'''
-{
-  "type": "",
-  "project_id": "",
-  "private_key_id": "",
-  "private_key": "",
-  "client_email": "",
-  "client_id": "",
-  "auth_uri": "",
-  "token_uri": "",
-  "auth_provider_x509_cert_url": "",
-  "client_x509_cert_url": "",
-  "universe_domain": ""
-}
 ''';
 
       print('📱 GSheets 객체 생성 중...');
@@ -76,8 +65,11 @@ class SheetsService {
       _randomizationSheet =
           _spreadsheet!.worksheetByTitle(_randomizationWorksheet);
 
-      print('📈 output 시트 찾는 중...');
-      _outputSheet = _spreadsheet!.worksheetByTitle(_outputWorksheet);
+      print('📈 main_results 시트 찾는 중...');
+      _mainResultsSheet = _spreadsheet!.worksheetByTitle(_mainResultsWorksheet);
+
+      print('🧩 quiz_results 시트 찾는 중...');
+      _quizResultsSheet = _spreadsheet!.worksheetByTitle(_quizResultsWorksheet);
 
       print('✅ 시트 초기화 완료!');
 
@@ -207,18 +199,18 @@ class SheetsService {
 
   /// 피험자 번호가 이미 사용되었는지 확인
   ///
-  /// [subjectNumber]: 확인할 피험자 번호 (1-64)
+  /// [subjectNumber]: 확인할 피험자 번호 (1-80)
   /// 반환: true면 이미 데이터가 있음 (중복), false면 사용 가능
   static Future<bool> isSubjectDataExists(int subjectNumber) async {
     try {
-      // output 시트가 초기화되지 않았다면 초기화 수행
-      if (_outputSheet == null) await init();
+      // main_results 시트가 초기화되지 않았다면 초기화 수행
+      if (_mainResultsSheet == null) await init();
 
-      // 피험자의 첫 번째 행 위치 계산
-      final firstRow = (subjectNumber - 1) * 4 + 2;
+      // 피험자의 첫 번째 행 위치 계산 (32행 기준)
+      final firstRow = (subjectNumber - 1) * 32 + 2;
 
       // 해당 행에 데이터가 있는지 확인
-      final rowData = await _outputSheet!.values.row(firstRow);
+      final rowData = await _mainResultsSheet!.values.row(firstRow);
       final hasData = rowData.isNotEmpty && rowData[0].toString().isNotEmpty;
 
       print('🔍 피험자 $subjectNumber 중복 확인: ${hasData ? "이미 존재" : "사용 가능"}');
@@ -230,19 +222,19 @@ class SheetsService {
     }
   }
 
-  /// 피험자의 전체 실험 결과를 Google Sheets에 일괄 저장
+  /// 피험자의 실제 질문 결과를 main_results 시트에 저장
   ///
-  /// [subjectNumber]: 피험자 번호 (1-64)
-  /// [results]: 4개 질문에 대한 실험 결과 리스트
+  /// [subjectNumber]: 피험자 번호 (1-80)
+  /// [results]: 32개 실제 질문에 대한 실험 결과 리스트
   ///
   /// 동시성 문제 해결을 위한 재시도 로직과 배치 저장 방식 사용
   /// 시간 정보는 ISO 8601 형식으로 저장
-  static Future<void> recordAllResults({
+  static Future<void> recordMainResults({
     required int subjectNumber,
     required List<QuestionResult> results,
   }) async {
-    // output 시트가 초기화되지 않았다면 초기화 수행
-    if (_outputSheet == null) await init();
+    // main_results 시트가 초기화되지 않았다면 초기화 수행
+    if (_mainResultsSheet == null) await init();
 
     final rows = <List<String>>[];
 
@@ -282,13 +274,82 @@ class SheetsService {
       // 각 행을 정확한 위치에 저장
       for (int i = 0; i < rows.length; i++) {
         final targetRow = startRow + i;
-        await _outputSheet!.values.insertRow(targetRow, rows[i]);
+        await _mainResultsSheet!.values.insertRow(targetRow, rows[i]);
         print('📝 $targetRow행 저장: ${rows[i][0]} (${rows[i][5]}ms)');
       }
 
       print('✅ 피험자 $participantId의 데이터를 $startRow~$endRow행에 저장 완료');
     } catch (e) {
       print('❌ 피험자 $subjectNumber 저장 실패: $e');
+      rethrow;
+    }
+  }
+
+  /// 피험자의 퀴즈 결과를 quiz_results 시트에 저장
+  ///
+  /// [subjectNumber]: 피험자 번호 (1-80)
+  /// [quizResults]: 트라이얼 번호와 정답 여부 맵 (예: {4: 1, 9: 0, 20: 1, 24: 1, 28: 0})
+  ///
+  /// quiz_results 시트 형식: ParticipantID | Quiz_T4 | Quiz_T9 | Quiz_T20 | Quiz_T24 | Quiz_T28
+  static Future<void> recordQuizResults({
+    required int subjectNumber,
+    required Map<int, int> quizResults,
+  }) async {
+    // quiz_results 시트가 초기화되지 않았다면 초기화 수행
+    if (_quizResultsSheet == null) await init();
+
+    // 피험자 번호를 P001 형식으로 변환
+    final participantId = 'P${subjectNumber.toString().padLeft(3, '0')}';
+
+    // 퀴즈 트라이얼 순서 (고정)
+    final quizTrials = [4, 9, 20, 24, 28];
+
+    // 데이터 행 생성: ParticipantID + 퀴즈 결과 5개
+    final row = [participantId];
+    for (final trialNo in quizTrials) {
+      row.add(quizResults[trialNo]?.toString() ?? '');
+    }
+
+    try {
+      // 피험자별 고정 위치에 저장: 피험자 N → N+1행 (헤더 제외)
+      final targetRow = subjectNumber + 1;
+      await _quizResultsSheet!.values.insertRow(targetRow, row);
+
+      print(
+          '🧩 퀴즈 결과 저장: $participantId → $targetRow행 (${quizResults.values.join(', ')})');
+      print('✅ 피험자 $participantId 퀴즈 결과 저장 완료');
+    } catch (e) {
+      print('❌ 피험자 $subjectNumber 퀴즈 결과 저장 실패: $e');
+      rethrow;
+    }
+  }
+
+  /// 피험자의 모든 실험 데이터를 저장하는 통합 메서드
+  ///
+  /// [subjectNumber]: 피험자 번호 (1-80)
+  /// [results]: 32개 실제 질문에 대한 실험 결과 리스트
+  /// [quizResults]: 5개 퀴즈 트라이얼의 정답 여부
+  static Future<void> recordAllResults({
+    required int subjectNumber,
+    required List<QuestionResult> results,
+    required Map<int, int> quizResults,
+  }) async {
+    try {
+      // 1. 실제 질문 결과를 main_results에 저장
+      await recordMainResults(
+        subjectNumber: subjectNumber,
+        results: results,
+      );
+
+      // 2. 퀴즈 결과를 quiz_results에 저장
+      await recordQuizResults(
+        subjectNumber: subjectNumber,
+        quizResults: quizResults,
+      );
+
+      print('🎯 피험자 $subjectNumber 전체 데이터 저장 완료');
+    } catch (e) {
+      print('❌ 피험자 $subjectNumber 전체 데이터 저장 실패: $e');
       rethrow;
     }
   }

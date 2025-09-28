@@ -1,16 +1,11 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../widgets/app_header.dart';
 import '../services/sheets_service.dart';
 import '../models/question_result.dart';
 
-enum ChatbotState {
-  initial, // 처음 시작 상태 (검은 오버레이 + 시작 버튼)
-  loading, // 로딩 상태 (점 3개)
-  chatting, // 채팅 상태 (메시지 표시)
-  finished, // 완료 상태 (검은 오버레이 + 다시하기/다음질문 버튼)
-  resting // 16번째 질문 후 10분 휴식 상태
-}
+enum ChatbotState { initial, loading, chatting, finished, resting, quiz }
 
 enum MessageType { user, bot }
 
@@ -18,7 +13,6 @@ class ChatMessage {
   final String text;
   final MessageType type;
   final DateTime timestamp;
-
   ChatMessage({
     required this.text,
     required this.type,
@@ -28,7 +22,6 @@ class ChatMessage {
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
-
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
 }
@@ -41,7 +34,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   int? subjectNumber;
   List<String> questions = [];
-  int currentQuestionIndex = 0;
+
+  // 트라이얼 관리 (실제 + 더미)
+  int currentTrialIndex = 0; // 0..36 (총 37트라이얼)
+  int actualQuestionIndex = 0; // 0..31 (실제 32문항)
+
   final List<QuestionResult> results = [];
   DateTime? sendTime;
   bool isFinishing = false;
@@ -51,6 +48,62 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   int remainingRestSeconds = 0;
   Timer? restTimer;
   bool restCompleted = false;
+
+  // 퀴즈 관련 변수들
+  List<String> quizOptions = [];
+  final Random _rnd = Random();
+  final Map<int, int> quizResults = {}; // {trialNo: 1 or 0}
+
+  // 더미 퀴즈 5개 (트라이얼 위치는 1-based)
+  final Map<int, Map<String, dynamic>> dummyTrials = {
+    4: {
+      "dummyQuestion": "지난 주말에 친구들과 본 영화 제목이 뭐였지?",
+      "options": [
+        "지난 주말에 가족들과 본 영화 제목이 뭐였지?",
+        "지난 달에 친구들과 본 드라마 제목이 뭐였지?",
+        "지난 주말에 친구들과 본 공연 이름이 뭐였지?",
+        "어제 친구들과 본 영화 제목이 뭐였지?",
+      ]
+    },
+    9: {
+      "dummyQuestion": "내가 마지막으로 택시를 탄 날은 언제였지?",
+      "options": [
+        "내가 마지막으로 버스를 탄 날은 언제였지?",
+        "내가 어제 택시를 탄 날은 언제였지?",
+        "내가 마지막으로 지하철을 탄 날은 언제였지?",
+        "내가 이번 달에 택시를 탄 날은 언제였지?",
+      ]
+    },
+    20: {
+      "dummyQuestion": "지난 주에 내가 갔다 왔던 카페가 어디였지?",
+      "options": [
+        "지난 달에 내가 갔다 왔던 카페가 어디였지?",
+        "지난 주에 내가 갔다 왔던 음식점이 어디였지?",
+        "지난 달에 내가 갔다 왔던 칵테일바가 어디였지?",
+        "지난 주에 내가 갔다 왔던 식당이 어디였지?",
+      ]
+    },
+    24: {
+      "dummyQuestion": "최근에 가장 많이 쓴 앱은 무엇이지?",
+      "options": [
+        "최근에 가장 많이 본 앱은 무엇이지?",
+        "최근에 가장 많이 쓴 웹사이트는 무엇이지?",
+        "지난 달에 가장 많이 쓴 앱은 무엇이지?",
+        "최근에 가장 많이 쓴 게임은 무엇이지?",
+      ]
+    },
+    28: {
+      "dummyQuestion": "지난 주 평일에 점심으로 먹은 메뉴는 뭐였지?",
+      "options": [
+        "지난 주말에 점심으로 먹은 메뉴는 뭐였지?",
+        "지난 주 평일에 저녁으로 먹은 메뉴는 뭐였지?",
+        "지난 달 평일에 점심으로 먹은 메뉴는 뭐였지?",
+        "어제 점심으로 먹은 메뉴는 뭐였지?",
+      ]
+    },
+  };
+
+  static const int totalTrials = 32 + 5; // 실제32 + 더미5 = 37
 
   @override
   void initState() {
@@ -79,125 +132,155 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     try {
       final questionTexts =
           await SheetsService.getQuestionsForSubject(subjectNumber!);
-      setState(() {
-        questions = questionTexts;
-      });
+      setState(() => questions = questionTexts);
     } catch (_) {
       setState(() {
-        questions = List.generate(32, (index) => "테스트 질문 ${index + 1}번입니다.");
+        questions = List.generate(32, (i) => "테스트 질문 ${i + 1}번입니다.");
       });
     }
   }
 
-  void _setCurrentQuestion() {
-    if (currentQuestionIndex < questions.length) {
-      setState(() {
-        _textController.text = questions[currentQuestionIndex];
-      });
+  // 현재 트라이얼에 맞는 텍스트필드 표시
+  void _setCurrentPromptInField() {
+    final trialNo = currentTrialIndex + 1; // 1-based
+    if (dummyTrials.containsKey(trialNo)) {
+      _textController.text = dummyTrials[trialNo]!["dummyQuestion"];
+    } else if (actualQuestionIndex < questions.length) {
+      _textController.text = questions[actualQuestionIndex];
+    } else {
+      _textController.text = '';
     }
   }
 
-  void _changeState(ChatbotState newState) {
+  void _changeState(ChatbotState s) => setState(() => currentState = s);
+
+  // 실험 완료 확인 (다음 트라이얼이 37번째인지 확인)
+  bool _isExperimentComplete() {
+    return currentTrialIndex >= 36; // 37번째 트라이얼이면 종료
+  }
+
+  // 발송/중지 버튼 - 발송
+  void _sendMessage() {
+    if (_textController.text.isEmpty || isProcessingResponse) return;
+
+    final trialNo = currentTrialIndex + 1;
+    sendTime = DateTime.now();
+    FocusScope.of(context).unfocus();
+
+    // 더미 트라이얼 → 메시지 쌓지 않고 퀴즈로 진입
+    if (dummyTrials.containsKey(trialNo)) {
+      _startQuiz(trialNo);
+      return;
+    }
+
+    // 실제 트라이얼 → 기존 채팅 로직
+    final userMessage = _textController.text;
     setState(() {
-      currentState = newState;
+      messages.add(ChatMessage(
+        text: userMessage,
+        type: MessageType.user,
+        timestamp: DateTime.now(),
+      ));
+      _textController.clear();
+      isProcessingResponse = true;
+    });
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted || !isProcessingResponse) return;
+      setState(() {
+        messages.add(ChatMessage(
+          text: "잠시만 기다려 주세요.",
+          type: MessageType.bot,
+          timestamp: DateTime.now(),
+        ));
+        currentState = ChatbotState.chatting;
+      });
     });
   }
 
-  void _sendMessage() {
-    if (_textController.text.isNotEmpty && !isProcessingResponse) {
-      final userMessage = _textController.text;
-      sendTime = DateTime.now(); // 발송 시간 기록
-
-      // 키보드 숨기기
-      FocusScope.of(context).unfocus();
-
-      setState(() {
-        // 사용자 메시지 추가
-        messages.add(ChatMessage(
-          text: userMessage,
-          type: MessageType.user,
-          timestamp: DateTime.now(),
-        ));
-        _textController.clear();
-        isProcessingResponse = true; // 응답 처리 중 상태로 변경
-        currentState = ChatbotState.chatting; // 채팅 상태로 변경
-      });
-
-      // 챗봇 응답 생성 과정 표시
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted && isProcessingResponse) {
-          setState(() {
-            messages.add(ChatMessage(
-              text: "잠시만 기다려 주세요.",
-              type: MessageType.bot,
-              timestamp: DateTime.now(),
-            ));
-          });
-        }
-      });
-    }
-  }
-
+  // 발송/중지 버튼 - 중지
   void _stopProcessing() {
-    if (isProcessingResponse && sendTime != null) {
-      final stopTime = DateTime.now();
-      final latencyMs = stopTime.difference(sendTime!).inMilliseconds;
+    if (!isProcessingResponse || sendTime == null) return;
 
-      // 현재 질문의 결과 저장
+    final stopTime = DateTime.now();
+    final latencyMs = stopTime.difference(sendTime!).inMilliseconds;
+
+    // 실제 질문만 저장(더미는 저장 X)
+    print(
+        '🔍 _stopProcessing: actualQuestionIndex=$actualQuestionIndex, questions.length=${questions.length}');
+    if (actualQuestionIndex >= 0 && actualQuestionIndex < questions.length) {
       results.add(QuestionResult(
-        questionNumber: currentQuestionIndex + 1,
-        questionText: questions[currentQuestionIndex],
+        questionNumber: actualQuestionIndex + 1,
+        questionText: questions[actualQuestionIndex],
         sendTime: sendTime!,
         stopTime: stopTime,
         latencyMs: latencyMs,
       ));
-
-      setState(() {
-        isProcessingResponse = false;
-        currentState = ChatbotState.finished;
-      });
+      print('💾 결과 저장됨: ${actualQuestionIndex + 1}번째 질문, 총 ${results.length}개');
+    } else {
+      print(
+          '❌ 결과 저장 안됨: actualQuestionIndex=$actualQuestionIndex, questions.length=${questions.length}');
     }
+
+    setState(() {
+      isProcessingResponse = false;
+      currentState = ChatbotState.finished; // finished 오버레이
+    });
   }
 
+  // finished 오버레이: 다음 질의
   void _nextQuestion() {
-    currentQuestionIndex++;
-    messages.clear();
-    restCompleted = false; // 다음 질문으로 넘어갈 때 휴식 완료 상태 초기화
+    // 휴식 완료 상태가 아닐 때만 트라이얼 진행
+    if (!restCompleted) {
+      // 방금 끝난 것이 실제였는지/더미였는지 판별 위해 이전 트라이얼 번호 보존
+      final prevTrialNo = currentTrialIndex + 1;
+      final wasDummy = dummyTrials.containsKey(prevTrialNo);
 
-    // 16번째 질문 완료 후 10분 휴식
-    if (currentQuestionIndex == 16) {
-      _startRestPeriod();
+      // 트라이얼 진행
+      currentTrialIndex++;
+
+      // 실제였으면 실제 인덱스 증가
+      if (!wasDummy) {
+        actualQuestionIndex++;
+      }
+
+      // 18번째 트라이얼 완료 시 휴식 진입
+      if (currentTrialIndex == 18) {
+        _startRestPeriod();
+        return;
+      }
+    }
+
+    messages.clear();
+    restCompleted = false;
+
+    // 37개 트라이얼 모두 완료 확인
+    if (currentTrialIndex >= 37) {
+      _finishExperiment();
       return;
     }
 
-    if (currentQuestionIndex < questions.length) {
-      _setCurrentQuestion(); // 질문 먼저 설정
-      _changeState(ChatbotState.loading); // 그다음 상태 변경
-    } else {
-      // 모든 질문 완료 - 실험 종료
-      _finishExperiment();
-    }
+    // 다음 트라이얼 진행
+    _setCurrentPromptInField();
+    _changeState(ChatbotState.loading);
   }
 
+  // finished 오버레이: 다시 하기
   void _retryCurrentQuestion() {
-    // 현재 질문의 결과 삭제
-    if (results.isNotEmpty) {
-      results.removeLast();
-    }
-
-    // 메시지 초기화하고 현재 질문 다시 설정
+    // 실제 질문인 경우만 되돌림
+    if (results.isNotEmpty) results.removeLast();
     messages.clear();
-    _setCurrentQuestion(); // 질문 먼저 설정
-    _changeState(ChatbotState.loading); // 그다음 상태 변경
+    _setCurrentPromptInField();
+    _changeState(ChatbotState.loading);
   }
 
+  // 10분 휴식(데모용 10초)
   void _startRestPeriod() {
     restStartTime = DateTime.now();
-    // remainingRestSeconds = 10 * 60; // 10분 = 600초
-    remainingRestSeconds = 10; // 10분 = 600초
+    remainingRestSeconds = 10; // 실제 600초
     _changeState(ChatbotState.resting);
 
-    // 1초마다 남은 시간 업데이트
+    restTimer?.cancel();
     restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         remainingRestSeconds--;
@@ -214,36 +297,64 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     restStartTime = null;
     remainingRestSeconds = 0;
     restCompleted = true;
-
-    // 휴식 완료 후 finished 상태로 전환 (사용자가 "다음 질의" 버튼을 클릭할 때까지 대기)
-    _changeState(ChatbotState.finished);
+    _changeState(ChatbotState.finished); // 휴식 끝나면 finished 오버레이
   }
 
-  Future<void> _finishExperiment() async {
-    setState(() {
-      isFinishing = true; // 로딩 상태 시작
-    });
+  // ====== QUIZ ======
+  void _startQuiz(int trialNo) {
+    final quizData = dummyTrials[trialNo];
+    if (quizData == null) return;
 
-    if (subjectNumber != null && results.isNotEmpty) {
-      try {
-        await SheetsService.recordAllResults(
-          subjectNumber: subjectNumber!,
-          results: results,
-        );
-        // 저장 성공 시 첫 화면으로 돌아가기
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/');
-        }
-      } catch (e) {
-        setState(() {
-          isFinishing = false;
-        });
-        _showSaveErrorDialog();
-      }
-    } else {
-      setState(() {
-        isFinishing = false;
-      });
+    // 옵션 5개: 정답 + 오답4 → 한 번만 셔플해서 고정
+    final correct = quizData["dummyQuestion"] as String;
+    final List<String> opts = List<String>.from(quizData["options"]);
+    opts.add(correct);
+    opts.shuffle(_rnd);
+    setState(() {
+      quizOptions = opts;
+      currentState = ChatbotState.quiz;
+      // 텍스트 필드는 퀴즈 진입 시 비움(중복 메시지 방지)
+      _textController.clear();
+    });
+  }
+
+  void _answerQuiz(String selected) {
+    final trialNo = currentTrialIndex + 1;
+    final quizData = dummyTrials[trialNo]!;
+    final correct = quizData["dummyQuestion"] as String;
+    final isCorrect = (selected == correct);
+
+    // 1/0 기록
+    quizResults[trialNo] = isCorrect ? 1 : 0;
+
+    // 트라이얼 소비
+    currentTrialIndex++;
+
+    // 18번째 끝났다면 바로 휴식 진입
+    if (currentTrialIndex == 18) {
+      _startRestPeriod();
+      return;
+    }
+
+    // 다음으로
+    setState(() {
+      currentState = ChatbotState.initial; // 항상 initial로 복귀 → 시작 버튼 누르면 다음 로딩
+    });
+  }
+  // ====== QUIZ END ======
+
+  Future<void> _finishExperiment() async {
+    setState(() => isFinishing = true);
+    try {
+      await SheetsService.recordAllResults(
+        subjectNumber: subjectNumber ?? -1,
+        results: results,
+        quizResults: quizResults,
+      );
+      if (mounted) Navigator.pushReplacementNamed(context, '/');
+    } catch (_) {
+      setState(() => isFinishing = false);
+      _showSaveErrorDialog();
     }
   }
 
@@ -252,42 +363,15 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: const Text(
-          '데이터 저장 실패',
-          style: TextStyle(
-            color: Colors.black87,
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        content: const Text(
-          '실험 데이터 저장에 실패했습니다.\n네트워크 연결을 확인하고 다시 시도해주세요.',
-          style: TextStyle(
-            color: Colors.black87,
-            fontSize: 16,
-          ),
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        title: const Text('데이터 저장 실패'),
+        content: const Text('실험 데이터 저장에 실패했습니다.\n네트워크 연결을 확인하고 다시 시도해주세요.'),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _finishExperiment();
             },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.black87,
-              backgroundColor: Colors.grey.shade100,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-            child: const Text(
-              '다시 시도',
-              style: TextStyle(fontSize: 16),
-            ),
+            child: const Text('다시 시도'),
           ),
         ],
       ),
@@ -368,10 +452,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                               ),
                               decoration: InputDecoration(
                                 hintText: '질문을 입력하세요.',
-                                hintStyle: const TextStyle(
-                                  color: Color(0xFF9AA3AB),
-                                  fontSize: 14,
-                                ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(999),
                                   borderSide: BorderSide.none,
@@ -418,6 +498,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             if (currentState == ChatbotState.initial) _buildInitialOverlay(),
             if (currentState == ChatbotState.finished) _buildFinishedOverlay(),
             if (currentState == ChatbotState.resting) _buildRestingOverlay(),
+            if (currentState == ChatbotState.quiz) _buildQuizOverlay(),
           ],
         ),
       ),
@@ -431,9 +512,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         : const Color(0xFF3B82F6);
   }
 
+  // ====== 오버레이들 ======
   Widget _buildInitialOverlay() => Positioned.fill(
         child: Container(
-          color: Colors.black.withValues(alpha: 0.6),
+          color: Colors.black.withOpacity(0.6),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -443,16 +525,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.4),
+                      color: Colors.black.withOpacity(0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
                       '평가를 진행할 준비가 되셨을 때,\n아래 [시작] 버튼을 눌러주세요.',
                       style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        height: 1.5,
-                      ),
+                          fontSize: 18, color: Colors.white, height: 1.5),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -462,15 +541,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     height: 48,
                     child: ElevatedButton(
                       onPressed: () {
-                        _setCurrentQuestion();
+                        _setCurrentPromptInField();
                         _changeState(ChatbotState.loading);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                            borderRadius: BorderRadius.circular(8)),
                       ),
                       child: const Text('시작', style: TextStyle(fontSize: 16)),
                     ),
@@ -484,7 +562,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Widget _buildFinishedOverlay() => Positioned.fill(
         child: Container(
-          color: Colors.black.withValues(alpha: 0.6),
+          color: Colors.black.withOpacity(0.6),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -494,18 +572,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.4),
+                      color: Colors.black.withOpacity(0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       restCompleted
                           ? '10분 휴식이 완료되었습니다.\n17번째 질문을 시작할 준비가 되시면\n아래 [다음 질의] 버튼을 눌러주세요.'
-                          : '평가를 진행할 준비가 되셨을 때,\n아래 [시작] 버튼을 눌러주세요.',
+                          : (_isExperimentComplete()
+                              ? '실험이 완료되었습니다.\n아래 [실험 종료] 버튼을 눌러주세요.'
+                              : '평가를 진행할 준비가 되셨을 때,\n아래 버튼을 눌러주세요.'),
                       style: const TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        height: 1.5,
-                      ),
+                          fontSize: 18, color: Colors.white, height: 1.5),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -521,8 +598,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                               backgroundColor: Colors.white,
                               foregroundColor: Colors.black,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                                  borderRadius: BorderRadius.circular(8)),
                             ),
                             child: const Text('다시 하기',
                                 style: TextStyle(fontSize: 16)),
@@ -536,13 +612,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                           child: ElevatedButton(
                             onPressed: isFinishing ? null : _nextQuestion,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
+                              backgroundColor: _isExperimentComplete()
+                                  ? Colors.red
+                                  : Colors.blue,
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                                  borderRadius: BorderRadius.circular(8)),
                             ),
-                            child: isFinishing && currentQuestionIndex >= 31
+                            child: isFinishing && _isExperimentComplete()
                                 ? const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
@@ -562,11 +639,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                                     ],
                                   )
                                 : Text(
-                                    currentQuestionIndex >= 31
-                                        ? '실험 종료'
-                                        : '다음 질의',
-                                    style: const TextStyle(fontSize: 16),
-                                  ),
+                                    _isExperimentComplete() ? '실험 종료' : '다음 질의',
+                                    style: const TextStyle(fontSize: 16)),
                           ),
                         ),
                       ),
@@ -581,7 +655,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Widget _buildRestingOverlay() => Positioned.fill(
         child: Container(
-          color: Colors.black.withValues(alpha: 0.6),
+          color: Colors.black.withOpacity(0.6),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -591,39 +665,32 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.4),
+                      color: Colors.black.withOpacity(0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
                       children: [
                         const Text(
-                          '16개 질문이 완료되었습니다.\n10분간 휴식을 취해주세요.',
+                          '전체 32개 트라이얼 중 16개가 끝났습니다.\n10분간 휴식을 취해주세요.',
                           style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.white,
-                            height: 1.5,
-                          ),
+                              fontSize: 18, color: Colors.white, height: 1.5),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 20),
                         Text(
                           _formatRestTime(remainingRestSeconds),
                           style: const TextStyle(
-                            fontSize: 32,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              fontSize: 32,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 40),
                   const Text(
-                    '휴식이 끝나면 자동으로 17번째 질문부터 시작됩니다.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                    ),
+                    '휴식이 끝나면 19번째 트라이얼부터 재개됩니다.',
+                    style: TextStyle(fontSize: 14, color: Colors.white),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -634,16 +701,61 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       );
 
   String _formatRestTime(int seconds) {
-    final minutes = seconds ~/ 60;
-    final remainingSeconds = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildQuizOverlay() {
+    final trialNo = currentTrialIndex + 1;
+    final quizData = dummyTrials[trialNo];
+    if (quizData == null) return const SizedBox();
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.6),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "조금 전에 읽으신 질의를 선택해주세요.",
+                  style: TextStyle(fontSize: 18, color: Colors.white),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                ...quizOptions.map((opt) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6.0),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.all(16),
+                        ),
+                        onPressed: () => _answerQuiz(opt),
+                        child: Text(opt, textAlign: TextAlign.center),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
+// ▼▼▼ 상태 클래스 바깥(원본 UI 유지) ▼▼▼
 class _UserChip extends StatelessWidget {
   final String text;
   const _UserChip({required this.text});
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -651,16 +763,10 @@ class _UserChip extends StatelessWidget {
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8EDF3),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 16,
-          color: Color(0xFF27313A),
-        ),
-      ),
+          color: const Color(0xFFE8EDF3),
+          borderRadius: BorderRadius.circular(999)),
+      child: Text(text,
+          style: const TextStyle(fontSize: 16, color: Color(0xFF27313A))),
     );
   }
 }
@@ -668,7 +774,6 @@ class _UserChip extends StatelessWidget {
 class _BotBubble extends StatelessWidget {
   final String text;
   const _BotBubble({required this.text});
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -682,11 +787,10 @@ class _BotBubble extends StatelessWidget {
           Text(
             text,
             style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF20262E),
-              height: 1.4,
-            ),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF20262E),
+                height: 1.4),
           ),
           const SizedBox(width: 13),
           const SizedBox(
