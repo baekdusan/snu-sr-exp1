@@ -12,7 +12,7 @@ class AppHeader extends StatelessWidget {
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back_ios, size: 20),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
           ),

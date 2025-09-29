@@ -185,16 +185,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       isProcessingResponse = true;
     });
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted || !isProcessingResponse) return;
-      setState(() {
-        messages.add(ChatMessage(
-          text: "잠시만 기다려 주세요.",
-          type: MessageType.bot,
-          timestamp: DateTime.now(),
-        ));
-        currentState = ChatbotState.chatting;
-      });
+    setState(() {
+      messages.add(ChatMessage(
+        text: "잠시만 기다려 주세요.",
+        type: MessageType.bot,
+        timestamp: DateTime.now(),
+      ));
+      currentState = ChatbotState.chatting;
     });
   }
 
@@ -277,7 +274,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // 10분 휴식(데모용 10초)
   void _startRestPeriod() {
     restStartTime = DateTime.now();
-    remainingRestSeconds = 10; // 실제 600초
+    remainingRestSeconds = 600; // 실제 600초
     _changeState(ChatbotState.resting);
 
     restTimer?.cancel();
@@ -380,126 +377,131 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFF7F9FB), Color(0xFFE0E6ED)],
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFF7F9FB), Color(0xFFE0E6ED)],
+            ),
           ),
-        ),
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                const SafeArea(bottom: false, child: AppHeader()),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        if (currentState == ChatbotState.loading) ...[
-                          const Expanded(child: SizedBox()),
-                        ] else if (currentState == ChatbotState.chatting ||
-                            messages.isNotEmpty) ...[
-                          Expanded(
-                            child: ListView(
-                              padding: EdgeInsets.zero,
-                              children: messages.map((m) {
-                                final isUser = m.type == MessageType.user;
-                                final bubble = isUser
-                                    ? _UserChip(text: m.text)
-                                    : _BotBubble(text: m.text);
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12.0),
-                                  child: Align(
-                                    alignment: isUser
-                                        ? Alignment.centerRight
-                                        : Alignment.centerLeft,
-                                    child: bubble,
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                        ] else ...[
-                          const Expanded(child: SizedBox()),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                Container(
-                  color: Colors.transparent,
-                  child: SafeArea(
-                    top: false,
-                    child: Container(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  const SafeArea(bottom: false, child: AppHeader()),
+                  Expanded(
+                    child: Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: Row(
+                      child: Column(
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _textController,
-                              maxLines: null,
-                              minLines: 1,
-                              keyboardType: TextInputType.multiline,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF20262E),
-                                height: 1.3,
-                              ),
-                              decoration: InputDecoration(
-                                hintText: '질문을 입력하세요.',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(999),
-                                  borderSide: BorderSide.none,
-                                ),
-                                filled: true,
-                                fillColor: Colors.white,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 12),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () {
-                              if (isProcessingResponse) {
-                                _stopProcessing();
-                              } else {
-                                _sendMessage();
-                              }
-                            },
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: _sendButtonColor(),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                isProcessingResponse
-                                    ? Icons.stop
-                                    : Icons.arrow_forward,
-                                color: Colors.white,
-                                size: 30,
+                          if (currentState == ChatbotState.loading) ...[
+                            const Expanded(child: SizedBox()),
+                          ] else if (currentState == ChatbotState.chatting ||
+                              messages.isNotEmpty) ...[
+                            Expanded(
+                              child: ListView(
+                                padding: EdgeInsets.zero,
+                                children: messages.map((m) {
+                                  final isUser = m.type == MessageType.user;
+                                  final bubble = isUser
+                                      ? _UserChip(text: m.text)
+                                      : _BotBubble(text: m.text);
+                                  return Padding(
+                                    padding:
+                                        const EdgeInsets.only(bottom: 12.0),
+                                    child: Align(
+                                      alignment: isUser
+                                          ? Alignment.centerRight
+                                          : Alignment.centerLeft,
+                                      child: bubble,
+                                    ),
+                                  );
+                                }).toList(),
                               ),
                             ),
-                          ),
+                          ] else ...[
+                            const Expanded(child: SizedBox()),
+                          ],
                         ],
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            if (currentState == ChatbotState.initial) _buildInitialOverlay(),
-            if (currentState == ChatbotState.finished) _buildFinishedOverlay(),
-            if (currentState == ChatbotState.resting) _buildRestingOverlay(),
-            if (currentState == ChatbotState.quiz) _buildQuizOverlay(),
-          ],
+                  Container(
+                    color: Colors.transparent,
+                    child: SafeArea(
+                      top: false,
+                      child: Container(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _textController,
+                                maxLines: null,
+                                minLines: 1,
+                                keyboardType: TextInputType.multiline,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF20262E),
+                                  height: 1.3,
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: '질문을 입력하세요.',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(999),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () {
+                                if (isProcessingResponse) {
+                                  _stopProcessing();
+                                } else {
+                                  _sendMessage();
+                                }
+                              },
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: _sendButtonColor(),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  isProcessingResponse
+                                      ? Icons.stop
+                                      : Icons.arrow_upward,
+                                  color: Colors.white,
+                                  size: 30,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (currentState == ChatbotState.initial) _buildInitialOverlay(),
+              if (currentState == ChatbotState.finished)
+                _buildFinishedOverlay(),
+              if (currentState == ChatbotState.resting) _buildRestingOverlay(),
+              if (currentState == ChatbotState.quiz) _buildQuizOverlay(),
+            ],
+          ),
         ),
       ),
     );
@@ -515,7 +517,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   // ====== 오버레이들 ======
   Widget _buildInitialOverlay() => Positioned.fill(
         child: Container(
-          color: Colors.black.withOpacity(0.6),
+          color: Colors.black.withValues(alpha: 0.6),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -525,7 +527,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
+                      color: Colors.black.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
@@ -562,7 +564,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Widget _buildFinishedOverlay() => Positioned.fill(
         child: Container(
-          color: Colors.black.withOpacity(0.6),
+          color: Colors.black.withValues(alpha: 0.6),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -572,7 +574,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
+                      color: Colors.black.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -655,7 +657,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Widget _buildRestingOverlay() => Positioned.fill(
         child: Container(
-          color: Colors.black.withOpacity(0.6),
+          color: Colors.black.withValues(alpha: 0.6),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -665,7 +667,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
+                      color: Colors.black.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -689,7 +691,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   ),
                   const SizedBox(height: 40),
                   const Text(
-                    '휴식이 끝나면 19번째 트라이얼부터 재개됩니다.',
+                    '휴식이 끝나면 17번째 트라이얼부터 재개됩니다.',
                     style: TextStyle(fontSize: 14, color: Colors.white),
                     textAlign: TextAlign.center,
                   ),
@@ -713,7 +715,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
