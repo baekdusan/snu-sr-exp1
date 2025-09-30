@@ -271,10 +271,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     _changeState(ChatbotState.loading);
   }
 
-  // 10분 휴식(데모용 10초)
+  // 3분 휴식(데모용 3초)
   void _startRestPeriod() {
     restStartTime = DateTime.now();
-    remainingRestSeconds = 600; // 실제 600초
+    remainingRestSeconds = 180; // 실제 180초
     _changeState(ChatbotState.resting);
 
     restTimer?.cancel();
@@ -579,7 +579,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     ),
                     child: Text(
                       restCompleted
-                          ? '10분 휴식이 완료되었습니다.\n17번째 질문을 시작할 준비가 되시면\n아래 [다음 질의] 버튼을 눌러주세요.'
+                          ? '3분 휴식이 완료되었습니다.\n17번째 질문을 시작할 준비가 되시면\n아래 [다음 질의] 버튼을 눌러주세요.'
                           : (_isExperimentComplete()
                               ? '실험이 완료되었습니다.\n아래 [실험 종료] 버튼을 눌러주세요.'
                               : '평가를 진행할 준비가 되셨을 때,\n아래 버튼을 눌러주세요.'),
@@ -673,7 +673,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     child: Column(
                       children: [
                         const Text(
-                          '전체 32개 트라이얼 중 16개가 끝났습니다.\n10분간 휴식을 취해주세요.',
+                          '전체 32개 트라이얼 중 16개가 끝났습니다.\n3분간 휴식을 취해주세요.',
                           style: TextStyle(
                               fontSize: 18, color: Colors.white, height: 1.5),
                           textAlign: TextAlign.center,

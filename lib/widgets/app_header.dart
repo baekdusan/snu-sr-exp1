@@ -10,11 +10,11 @@ class AppHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back_ios, size: 20),
+          const IconButton(
+            icon: Icon(Icons.arrow_back_ios, size: 20),
             onPressed: null,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+            constraints: BoxConstraints(minWidth: 24, minHeight: 24),
           ),
           const SizedBox(width: 8),
           Container(
